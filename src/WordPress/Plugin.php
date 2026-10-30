@@ -4,6 +4,7 @@ namespace TaxApiConrad\WordPress;
 
 use TaxApiConrad\Core\ConradMailParser;
 use Taxmod\Core\Import\Mail\OrderMailParser;
+use Taxmod\WordPress\Import\Documents;
 
 /**
  * The boundary: registers the Conrad mail reader with Taxmod Mail (filter `taxmail_parsers`) and a tab on the
@@ -13,7 +14,7 @@ use Taxmod\Core\Import\Mail\OrderMailParser;
  */
 final class Plugin
 {
-    public const VERSION = '0.0.1';
+    public const VERSION = '0.0.2';
     public const TAB     = 'conrad';
 
     public static function boot(): void
@@ -29,7 +30,8 @@ final class Plugin
                 return;
             }
 
-            $reader = new ConradMailParser(self::VERSION);
+            // Invoice PDFs go to the modeller's encrypted document store (0.1.94 or later, D-1023); without it only the facts are kept.
+            $reader = new ConradMailParser(self::VERSION, class_exists(Documents::class) ? Documents::put(...) : null);
             add_filter('taxmail_parsers', static fn (array $parsers): array => [...$parsers, $reader]);
             add_filter('taxmod_config_tabs', static fn (array $tabs): array => $tabs + [self::TAB => [
                 'title'   => 'Conrad',
@@ -48,6 +50,6 @@ final class Plugin
     {
         return '<ol><li>' . esc_html__('Let Conrad send its order mails to the mailbox of Taxmod Mail (or forward them there).', 'taxapiconrad') . '</li><li>'
             . esc_html__('Keep this module active: Taxmod Mail hands every Conrad mail to it, and the proposals appear in the Inbox.', 'taxapiconrad') . '</li></ol><p>'
-            . esc_html__('An invoice names only its own number; it is shown for discarding.', 'taxapiconrad') . '</p>';
+            . esc_html__('An invoice becomes a record «Rechnung» linked to its order: number, date, amount, paid or open, and the PDF, which is kept encrypted.', 'taxapiconrad') . '</p>';
     }
 }

@@ -3,7 +3,7 @@
 Conrad connection for the [Taxonomy Modeller](https://github.com/sfambach/wp-taxonomy-modeler) (WordPress plugin).
 
 **Status 0.0.1 (needs modeller 0.1.81 and [Taxmod Mail](https://github.com/sfambach/wp_tax_mail) 0.6.0 or later):
-reads order confirmations, shipping and delivery mails and invoices from the mailbox of Taxmod Mail and hands them to the modeller's inbox. An invoice names only its own number; it is shown for discarding.**
+reads order confirmations, shipping and delivery mails and invoices from the mailbox of Taxmod Mail and hands them to the modeller's inbox. An invoice becomes a record «Rechnung» linked to its order (D-1024): the order number, date, amount and payment are read from the attached PDF (smalot/pdfparser), and the PDF is kept in the modeller's encrypted document store (D-1023).**
 
 Every shop connection is a module of its own, whether it reads mails or an API; Taxmod Mail only fetches and files
 the mails (D-1006, [concept](https://github.com/sfambach/wp-taxonomy-modeler/blob/main/docs/pakete/import/module-schnitt.md)).

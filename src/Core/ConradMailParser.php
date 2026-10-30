@@ -6,19 +6,21 @@ use Taxmod\Core\Import\Mail\MailMessage;
 use Taxmod\Core\Import\Mail\LineCollector;
 use Taxmod\Core\Import\Mail\OrderMailParser;
 use Taxmod\Core\Import\Mail\Text;
+use Taxmod\Core\Import\InvoiceFacts;
 use Taxmod\Core\Import\OrderProposal;
 use Taxmod\Core\Import\ProposalKind;
 
 /**
  * Conrad: «Bestellt» mail (items, shipping, sum), shipping and delivery mails, invoices.
- * Moved here from Taxmod Mail (D-1006). Port of legacy/kaeufe-import/kaeufe_import/shops/conrad.py. An invoice names only its own number; the Python
- * importer matched it to an order afterwards — here it is shown for discarding.
+ * Moved here from Taxmod Mail (D-1006). Port of legacy/kaeufe-import/kaeufe_import/shops/conrad.py. An invoice mail names only its own number;
+ * the order, date, amount and payment come from the attached PDF, which is kept in the encrypted document store (D-1023, D-1024).
  *
  * @see https://github.com/sfambach/wp-taxonomy-modeler/blob/main/docs/pakete/import/module-schnitt.md
  */
 final class ConradMailParser implements OrderMailParser
 {
-    public function __construct(private readonly string $version)
+    /** @param (\Closure(string, string, string): string)|null $keepDocument stores a PDF and returns its `vault:<key>` */
+    public function __construct(private readonly string $version, private readonly ?\Closure $keepDocument = null)
     {
     }
 
@@ -46,9 +48,7 @@ final class ConradMailParser implements OrderMailParser
         $text = implode("\n", $lines);
 
         if (str_contains($subject, 'Rechnung')) {
-            $invoice = preg_match('/\((\d{10}),/', $subject, $found) === 1 ? $found[1] : '';
-
-            return new OrderProposal($this->shopName(), $invoice, ProposalKind::Invoice, counterparty: self::MERCHANT);
+            return $this->invoice($mail);
         }
 
         if (preg_match('/(\d{10})\s*$/', $subject, $match) !== 1 && preg_match('/Auftrag (\d{10})/', $subject, $match) !== 1
@@ -82,6 +82,23 @@ final class ConradMailParser implements OrderMailParser
 
         return new OrderProposal($this->shopName(), $match[1], ProposalKind::Ordered, $mail->date?->format('Y-m-d'), 'EUR', $items->lines(),
             Text::decimal(Text::money(Text::after($lines, 'Versandkosten'))[0]), Text::decimal(Text::money(Text::after($lines, 'Summe'))[0]), self::MERCHANT);
+    }
+
+    private function invoice(MailMessage $mail): OrderProposal
+    {
+        $pdf = $mail->pdfs()[0] ?? null;
+        $number = preg_match('/\((\d{10}),/', $mail->subject, $found) === 1 || preg_match('/^(\d{10})\.pdf$/i', $pdf->fileName ?? '', $found) === 1 ? $found[1] : '';
+        $facts = $pdf !== null ? ConradInvoicePdf::read($pdf->content, $number) : null;
+
+        // Before modeller 0.1.95 there is no invoice record; the mail is then shown for discarding, as before.
+        if ($facts === null || ! class_exists(InvoiceFacts::class)) {
+            return new OrderProposal($this->shopName(), $number, ProposalKind::Invoice, counterparty: self::MERCHANT);
+        }
+
+        $document = $this->keepDocument !== null ? ($this->keepDocument)($pdf->content, $pdf->fileName, 'application/pdf') : null;
+
+        return new OrderProposal($this->shopName(), $facts->orderNumber, ProposalKind::Invoice, total: $facts->total, counterparty: self::MERCHANT,
+            invoice: new InvoiceFacts($number, $facts->date, $facts->paid, $facts->paymentMethod, $document));
     }
 
     /** The «€ 1,62» line that closes an item, within the few lines after its quantity; null when the layout has none. */

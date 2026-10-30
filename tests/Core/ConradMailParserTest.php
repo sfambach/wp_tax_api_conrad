@@ -3,6 +3,7 @@
 namespace TaxApiConrad\Tests\Core;
 
 use PHPUnit\Framework\TestCase;
+use TaxApiConrad\Core\ConradInvoicePdf;
 use TaxApiConrad\Core\ConradMailParser;
 use Taxmod\Core\Import\Mail\MimeParser;
 
@@ -12,9 +13,9 @@ use Taxmod\Core\Import\Mail\MimeParser;
 final class ConradMailParserTest extends TestCase
 {
     /** @return array<string, mixed> */
-    private static function read(string $fixture): array
+    private static function read(string $fixture, ?\Closure $keepDocument = null): array
     {
-        $parser = new ConradMailParser('0.0.1');
+        $parser = new ConradMailParser('0.0.1', $keepDocument);
         $mail = (new MimeParser())->parse(1, (string) file_get_contents(__DIR__ . '/fixtures/' . $fixture . '.eml'));
         self::assertTrue($parser->recognises($mail), 'not recognised: ' . $fixture);
 
@@ -51,5 +52,32 @@ final class ConradMailParserTest extends TestCase
     {
         self::assertNotSame([], (new ConradMailParser('1.2.3'))->kinds());
         self::assertSame('1.2.3', (new ConradMailParser('1.2.3'))->version());
+    }
+
+    public function testConradInvoiceReadsOrderAmountAndPaymentFromItsPdf(): void
+    {
+        $kept = [];
+        $invoice = self::read('c4', static function (string $content, string $fileName, string $mimeType) use (&$kept): string {
+            $kept[] = [str_starts_with($content, '%PDF'), $fileName, $mimeType];
+
+            return 'vault:' . str_repeat('a', 32);
+        });
+
+        self::assertSame(['invoice', '2020000001', '6.57'], [$invoice['kind'], $invoice['order_number'], $invoice['total']]);
+        self::assertSame(['number' => '1111111111', 'date' => '2026-10-26', 'paid' => true, 'payment_method' => 'PayPal',
+            'document' => 'vault:' . str_repeat('a', 32)], $invoice['invoice']);
+        self::assertSame([[true, '1111111111.pdf', 'application/pdf']], $kept);
+    }
+
+    public function testConradInvoiceFindsTheOrderGluedToTheInvoiceNumber(): void
+    {
+        $facts = ConradInvoicePdf::fromText("Rechnung\n26.10.2026\n825169256024730A411111111112020000001\nEUREndbetrag        20,09\n", '1111111111');
+
+        self::assertSame(['2020000001', '20.09', null], [$facts?->orderNumber, $facts?->total, $facts?->paid]);
+    }
+
+    public function testConradInvoiceWithoutPdfStaysAnInvoiceNumberOnly(): void
+    {
+        self::assertNull(ConradInvoicePdf::read('not a pdf', '1111111111'));
     }
 }
